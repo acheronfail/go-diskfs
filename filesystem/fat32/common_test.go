@@ -13,17 +13,22 @@ import (
 	"time"
 )
 
-const (
-	Fat32File           = "./testdata/dist/fat32.img"
-	fsckFile            = "./testdata/dist/fsck.txt"
-	rootdirFile         = "./testdata/dist/root_dir.txt"
-	rootdirFileFLS      = "./testdata/dist/root_dir_fls.txt"
-	rootdirEntryPattern = "./testdata/dist/root_dir_istat_%d.txt"
-	foodirFile          = "./testdata/dist/foo_dir.txt"
-	foodirEntryPattern  = "./testdata/dist/foo_dir_istat_%d.txt"
-	serialFile          = "./testdata/dist/serial.txt"
-	fsstatFile          = "./testdata/dist/fsstat.txt"
-)
+func getTestFile(fileName string, fatType int) string {
+	pattern := fmt.Sprintf("./testdata/dist/fat%d/%s", fatType, fileName)
+	if _, err := os.Stat(pattern); os.IsNotExist(err) {
+		panic(fmt.Sprintf("Fat%d %s file not found: %s", fatType, fileName, pattern))
+	}
+
+	return pattern
+}
+
+func getTestPattern(pattern string, fatType int) string {
+	return fmt.Sprintf("./testdata/dist/fat%d/%s", fatType, pattern)
+}
+
+func GetFatDiskImagePath(fatType int) string {
+	return getTestFile("disk.img", fatType)
+}
 
 type testFSInfo struct {
 	bytesPerCluster uint32
@@ -66,13 +71,15 @@ var (
 	testFSSTATClustersStartRE   = regexp.MustCompile(`\s*FAT CONTENTS \(in sectors\)\s*$`)
 	testFSSTATClusterLineRE     = regexp.MustCompile(`\s*(\d+)-(\d+) \((\d+)\)\s+->\s+(\S+)\s*$`)
 
-	fsInfo *testFSInfo
+	fsInfo12 *testFSInfo
+	fsInfo16 *testFSInfo
+	fsInfo32 *testFSInfo
 )
 
 // TestMain sets up the test environment and runs the tests
 func TestMain(m *testing.M) {
 	// Check and generate artifacts if necessary
-	if _, err := os.Stat(Fat32File); os.IsNotExist(err) {
+	if _, err := os.Stat(GetFatDiskImagePath(32)); os.IsNotExist(err) {
 		// Run the genartifacts.sh script
 		cmd := exec.Command("sh", "mkfat32.sh")
 		cmd.Stdout = os.Stdout
@@ -88,11 +95,18 @@ func TestMain(m *testing.M) {
 
 	// common info
 	var err error
-	fsInfo, err = testReadFilesystemData()
-	if err != nil {
-		println("Error reading fsck file", err)
-		os.Exit(1)
+	handleErr := func(err error) {
+		if err != nil {
+			println("Error reading fsck file", err)
+			os.Exit(1)
+		}
 	}
+	fsInfo12, err = testReadFilesystemData(12)
+	handleErr(err)
+	fsInfo16, err = testReadFilesystemData(16)
+	handleErr(err)
+	fsInfo32, err = testReadFilesystemData(32)
+	handleErr(err)
 
 	// Run the tests
 	code := m.Run()
@@ -107,29 +121,31 @@ func TestMain(m *testing.M) {
 func GetValidDirectoryEntries() (entries []*directoryEntry, b []byte, err error) {
 	// read correct bytes off of disk
 
-	input, err := os.ReadFile(Fat32File)
+	input, err := os.ReadFile(GetFatDiskImagePath(32))
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading data from fat32 test fixture %s: %v", Fat32File, err)
+		return nil, nil, fmt.Errorf("error reading data from fat32 test fixture %s: %v", GetFatDiskImagePath(32), err)
 	}
-	start := fsInfo.dataStartBytes // start of root directory in fat32.img
+	start := fsInfo32.dataStartBytes // start of root directory in fat32.img
 	// we only have 9 actual 32-byte entries, of which 4 are real and 3 are VFAT extensionBytes
 	//   the rest are all 0s (as they should be), so we will include to exercise it
-	b = make([]byte, fsInfo.bytesPerCluster)
-	copy(b, input[start:start+fsInfo.bytesPerCluster])
+	b = make([]byte, fsInfo32.bytesPerCluster)
+	copy(b, input[start:start+fsInfo32.bytesPerCluster])
 
-	entries, err = testGetValidDirectoryEntriesFromFile(rootdirFile, rootdirEntryPattern, fsInfo)
+	rootdirFile := getTestFile("root_dir.txt", 32)
+	rootdirEntryPattern := getTestPattern("root_dir_istat_%d.txt", 32)
+	entries, err = testGetValidDirectoryEntriesFromFile(rootdirFile, rootdirEntryPattern, fsInfo32)
 
 	// in the root directory, add the label entry
-	if fsInfo.label != "" {
-		filenameShort := fsInfo.label
+	if fsInfo32.label != "" {
+		filenameShort := fsInfo32.label
 		extension := ""
-		if len(fsInfo.label) > 8 {
-			filenameShort = fsInfo.label[:8]
-			extension = fsInfo.label[8:]
+		if len(fsInfo32.label) > 8 {
+			filenameShort = fsInfo32.label[:8]
+			extension = fsInfo32.label[8:]
 		}
 		de := &directoryEntry{filenameShort: filenameShort, fileExtension: extension, isVolumeLabel: true}
 		filename := fmt.Sprintf(rootdirEntryPattern, len(entries))
-		if err := testPopulateDirectoryEntryFromIstatFile(de, filename, fsInfo); err != nil {
+		if err := testPopulateDirectoryEntryFromIstatFile(de, filename, fsInfo32); err != nil {
 			return nil, nil, err
 		}
 		entries = append(entries, de)
@@ -152,6 +168,7 @@ func GetValidDirectoryEntriesExtended(dir string) (entries []*directoryEntry, b 
 	dir = strings.TrimSuffix(dir, "/")
 	dir = strings.TrimSuffix(dir, "\\")
 
+	rootdirFileFLS := getTestFile("root_dir_fls.txt", 32)
 	flsData, err := os.ReadFile(rootdirFileFLS)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading fls data from %s: %w", rootdirFileFLS, err)
@@ -171,17 +188,19 @@ func GetValidDirectoryEntriesExtended(dir string) (entries []*directoryEntry, b 
 		break
 	}
 
-	input, err := os.ReadFile(Fat32File)
+	input, err := os.ReadFile(GetFatDiskImagePath(32))
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading data from fat32 test fixture %s: %v", Fat32File, err)
+		return nil, nil, fmt.Errorf("error reading data from fat32 test fixture %s: %v", GetFatDiskImagePath(32), err)
 	}
-	start := fsInfo.dataStartBytes + 1 // start of foo directory in fat32.img
+	start := fsInfo32.dataStartBytes + 1 // start of foo directory in fat32.img
 	// we only have 9 actual 32-byte entries, of which 4 are real and 3 are VFAT extensionBytes
 	//   the rest are all 0s (as they should be), so we will include to exercise it
-	b = make([]byte, fsInfo.bytesPerCluster)
-	copy(b, input[start:start+fsInfo.bytesPerCluster])
+	b = make([]byte, fsInfo32.bytesPerCluster)
+	copy(b, input[start:start+fsInfo32.bytesPerCluster])
 
-	entries, err = testGetValidDirectoryEntriesFromFile(foodirFile, foodirEntryPattern, fsInfo)
+	foodirFile := getTestFile("foo_dir.txt", 32)
+	foodirEntryPattern := getTestPattern("foo_dir_istat_%d.txt", 32)
+	entries, err = testGetValidDirectoryEntriesFromFile(foodirFile, foodirEntryPattern, fsInfo32)
 	// handle . and ..
 	if len(entries) > 0 && entries[0].filenameShort == "." {
 		entries[0].clusterLocation = uint32(cluster)
@@ -319,8 +338,9 @@ func testPopulateDirectoryEntryFromIstatFile(de *directoryEntry, filename string
 }
 
 //nolint:gocyclo // we need to call this function from the test, do not care that it is too complex
-func testReadFilesystemData() (info *testFSInfo, err error) {
+func testReadFilesystemData(fatType int) (info *testFSInfo, err error) {
 	info = &testFSInfo{}
+	fsckFile := getTestFile("fsck.txt", fatType)
 	fsckInfo, err := os.ReadFile(fsckFile)
 	if err != nil {
 		return nil, fmt.Errorf("error opening fsck info file %s: %v", fsckFile, err)
@@ -400,6 +420,7 @@ func testReadFilesystemData() (info *testFSInfo, err error) {
 	}
 
 	// get the filesystem label
+	rootdirFile := getTestFile("root_dir.txt", fatType)
 	dirInfo, err := os.ReadFile(rootdirFile)
 	if err != nil {
 		println("Error opening directory info file", rootdirFile, err)
@@ -416,6 +437,7 @@ func testReadFilesystemData() (info *testFSInfo, err error) {
 		}
 	}
 
+	serialFile := getTestFile("serial.txt", fatType)
 	serial, err := os.ReadFile(serialFile)
 	if err != nil {
 		println("Error reading serial file", serialFile, err)
@@ -428,6 +450,7 @@ func testReadFilesystemData() (info *testFSInfo, err error) {
 	}
 	info.serial = uint32(decimal)
 
+	fsstatFile := getTestFile("fsstat.txt", fatType)
 	fsstat, err := os.ReadFile(fsstatFile)
 	if err != nil {
 		println("Error reading fsstat file", fsstatFile, err)

@@ -55,9 +55,9 @@ func tmpFat32(fill bool, embedPre, embedPost int64) (*os.File, error) {
 	}
 
 	// either copy the contents of the base file over, or make a file of similar size
-	b, err := os.ReadFile(fat32.Fat32File)
+	b, err := os.ReadFile(fat32.GetFatDiskImagePath(32))
 	if err != nil {
-		return nil, fmt.Errorf("Failed to read contents of %s: %v", fat32.Fat32File, err)
+		return nil, fmt.Errorf("Failed to read contents of %s: %v", fat32.GetFatDiskImagePath(32), err)
 	}
 	if embedPre > 0 {
 		empty := make([]byte, embedPre)
@@ -72,10 +72,10 @@ func tmpFat32(fill bool, embedPre, embedPost int64) (*os.File, error) {
 	if fill {
 		written, err := f.Write(b)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to write contents of %s to %s: %v", fat32.Fat32File, filename, err)
+			return nil, fmt.Errorf("Failed to write contents of %s to %s: %v", fat32.GetFatDiskImagePath(32), filename, err)
 		}
 		if written != len(b) {
-			return nil, fmt.Errorf("wrote only %d bytes of %s to %s instead of %d", written, fat32.Fat32File, filename, len(b))
+			return nil, fmt.Errorf("wrote only %d bytes of %s to %s instead of %d", written, fat32.GetFatDiskImagePath(32), filename, len(b))
 		}
 	} else {
 		size := int64(len(b))

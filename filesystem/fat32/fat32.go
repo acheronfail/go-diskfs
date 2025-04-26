@@ -511,7 +511,14 @@ func (fs *FileSystem) Close() error {
 
 // Type returns the type code for the filesystem. Always returns filesystem.TypeFat32
 func (fs *FileSystem) Type() filesystem.Type {
-	return filesystem.TypeFat32
+	switch fs.fatType {
+	case 12:
+		return filesystem.TypeFat12
+	case 16:
+		return filesystem.TypeFat16
+	default:
+		return filesystem.TypeFat32
+	}
 }
 
 // Mkdir make a directory at the given path. It is equivalent to `mkdir -p`, i.e. idempotent, in that:

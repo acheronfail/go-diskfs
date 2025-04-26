@@ -37,6 +37,7 @@ func getValidFat32FSSmall() *FileSystem {
 	eoc := uint32(0xffffffff)
 	maxCluster := uint32(128)
 	fs := &FileSystem{
+		fatType: 32,
 		table: table{
 			rootDirCluster: 2,
 			size:           512,
@@ -70,7 +71,7 @@ func getValidFat32FSSmall() *FileSystem {
 			}, maxCluster),
 		},
 		bytesPerCluster: 512,
-		dataStart:       178176,
+		dataStart:       565248,
 		backend: file.New(&testhelper.FileImpl{
 			//nolint:revive // unused parameter, keeping name makes it easier to use in the future
 			Writer: func(b []byte, offset int64) (int, error) {
@@ -130,16 +131,16 @@ func TestFat32ReadDirectory(t *testing.T) {
 	// will use the fat32.img fixture to test an actual directory
 	// \ (root directory) should be in one cluster
 	// \foo should be in two clusters
-	testFile, err := os.Open(Fat32File)
+	testFile, err := os.Open(GetFatDiskImagePath(32))
 	if err != nil {
-		t.Fatalf("could not open file %s to read: %v", Fat32File, err)
+		t.Fatalf("could not open file %s to read: %v", GetFatDiskImagePath(32), err)
 	}
 	defer testFile.Close()
 	fs := &FileSystem{
 		table:           *getValidFat32Table(),
 		backend:         file.New(testFile, false),
-		bytesPerCluster: int(fsInfo.bytesPerCluster),
-		dataStart:       fsInfo.dataStartBytes,
+		bytesPerCluster: int(fsInfo32.bytesPerCluster),
+		dataStart:       fsInfo32.dataStartBytes,
 	}
 	validDe, _, err := GetValidDirectoryEntries()
 	if err != nil {
@@ -288,9 +289,9 @@ func TestFat32MkFile(t *testing.T) {
 
 func TestFat32ReadDirWithMkdir(t *testing.T) {
 	fs := getValidFat32FSFull()
-	datab, err := os.ReadFile(Fat32File)
+	datab, err := os.ReadFile(GetFatDiskImagePath(32))
 	if err != nil {
-		t.Fatalf("unable to read data from file %s: %v", Fat32File, err)
+		t.Fatalf("unable to read data from file %s: %v", GetFatDiskImagePath(32), err)
 	}
 	validDe, _, err := GetValidDirectoryEntries()
 	if err != nil {
