@@ -937,7 +937,7 @@ func (fs *FileSystem) readDirectory(dir *Directory) ([]*directoryEntry, error) {
 		b = append(b, tmpb...)
 	}
 	// get the directory
-	if err := dir.entriesFromBytes(b); err != nil {
+	if err := dir.entriesFromBytes(b, fs.fatType); err != nil {
 		return nil, err
 	}
 	return dir.entries, nil
@@ -956,7 +956,8 @@ func (fs *FileSystem) mkSubdir(parent *Directory, name string) (*directoryEntry,
 
 func (fs *FileSystem) writeDirectoryEntries(dir *Directory) error {
 	// we need to save the entries of the parent
-	b, err := dir.entriesToBytes(fs.bytesPerCluster)
+	rootDirectoryEntries := fs.bootSector.biosParameterBlock.dos331BPB.dos20BPB.rootDirectoryEntries
+	b, err := dir.entriesToBytes(fs.bytesPerCluster, fs.fatType, rootDirectoryEntries)
 	if err != nil {
 		return fmt.Errorf("could not create a valid byte stream for a FAT32 Entries: %w", err)
 	}

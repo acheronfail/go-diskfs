@@ -128,55 +128,57 @@ func TestFat32GetClusterList(t *testing.T) {
 }
 
 func TestFat32ReadDirectory(t *testing.T) {
-	// will use the fat32.img fixture to test an actual directory
-	// \ (root directory) should be in one cluster
-	// \foo should be in two clusters
-	testFile, err := os.Open(GetFatDiskImagePath(32))
-	if err != nil {
-		t.Fatalf("could not open file %s to read: %v", GetFatDiskImagePath(32), err)
-	}
-	defer testFile.Close()
-	fs := &FileSystem{
-		table:           *getValidFat32Table(),
-		backend:         file.New(testFile, false),
-		bytesPerCluster: int(fsInfo32.bytesPerCluster),
-		dataStart:       fsInfo32.dataStartBytes,
-	}
-	validDe, _, err := GetValidDirectoryEntries()
-	if err != nil {
-		t.Fatalf("unable to read valid directory entries: %v", err)
-	}
-	validDeExtended, _, err := GetValidDirectoryEntriesExtended("/foo")
-	if err != nil {
-		t.Fatalf("unable to read valid directory entries extended: %v", err)
-	}
-	tests := []struct {
-		path    string
-		cluster uint32
-		entries []*directoryEntry
-	}{
-		{"\\", 2, validDe},
-		{"/", 2, validDe},
-		{"\\foo", 3, validDeExtended},
-		{"/foo", 3, validDeExtended},
-	}
-	for _, tt := range tests {
-		dir := &Directory{
-			directoryEntry: directoryEntry{
-				clusterLocation: tt.cluster,
-			},
+	for _, fatType := range FatTypes {
+		// will use the fat32.img fixture to test an actual directory
+		// \ (root directory) should be in one cluster
+		// \foo should be in two clusters
+		testFile, err := os.Open(GetFatDiskImagePath(fatType))
+		if err != nil {
+			t.Fatalf("could not open file %s to read: %v", GetFatDiskImagePath(fatType), err)
 		}
-		entries, err := fs.readDirectory(dir)
-		switch {
-		case err != nil:
-			t.Errorf("fs.readDirectory(%s): unexpected nil error: %v", tt.path, err)
-		case len(entries) != len(tt.entries):
-			t.Errorf("fs.readDirectory(%s): number of entries do not match, actual %d expected %d", tt.path, len(entries), len(tt.entries))
-		default:
-			for i, entry := range entries {
-				if !compareDirectoryEntriesIgnoreDates(entry, tt.entries[i]) {
-					t.Errorf("fs.readDirectory(%s) %d: entries do not match, actual then expected", tt.path, i)
-					t.Log(cmp.Diff(*entry, *tt.entries[i], cmp.AllowUnexported(directoryEntry{})))
+		defer testFile.Close()
+		fs := &FileSystem{
+			table:           *getValidFat32Table(),
+			backend:         file.New(testFile, false),
+			bytesPerCluster: int(fsInfo32.bytesPerCluster),
+			dataStart:       fsInfo32.dataStartBytes,
+		}
+		validDe, _, err := GetValidDirectoryEntries(fatType)
+		if err != nil {
+			t.Fatalf("unable to read valid directory entries: %v", err)
+		}
+		validDeExtended, _, err := GetValidDirectoryEntriesExtended("/foo")
+		if err != nil {
+			t.Fatalf("unable to read valid directory entries extended: %v", err)
+		}
+		tests := []struct {
+			path    string
+			cluster uint32
+			entries []*directoryEntry
+		}{
+			{"\\", 2, validDe},
+			{"/", 2, validDe},
+			{"\\foo", 3, validDeExtended},
+			{"/foo", 3, validDeExtended},
+		}
+		for _, tt := range tests {
+			dir := &Directory{
+				directoryEntry: directoryEntry{
+					clusterLocation: tt.cluster,
+				},
+			}
+			entries, err := fs.readDirectory(dir)
+			switch {
+			case err != nil:
+				t.Errorf("fs.readDirectory(%s): unexpected nil error: %v", tt.path, err)
+			case len(entries) != len(tt.entries):
+				t.Errorf("fs.readDirectory(%s): number of entries do not match, actual %d expected %d", tt.path, len(entries), len(tt.entries))
+			default:
+				for i, entry := range entries {
+					if !compareDirectoryEntriesIgnoreDates(entry, tt.entries[i]) {
+						t.Errorf("fs.readDirectory(%s) %d: entries do not match, actual then expected", tt.path, i)
+						t.Log(cmp.Diff(*entry, *tt.entries[i], cmp.AllowUnexported(directoryEntry{})))
+					}
 				}
 			}
 		}
@@ -288,84 +290,86 @@ func TestFat32MkFile(t *testing.T) {
 }
 
 func TestFat32ReadDirWithMkdir(t *testing.T) {
-	fs := getValidFat32FSFull()
-	datab, err := os.ReadFile(GetFatDiskImagePath(32))
-	if err != nil {
-		t.Fatalf("unable to read data from file %s: %v", GetFatDiskImagePath(32), err)
-	}
-	validDe, _, err := GetValidDirectoryEntries()
-	if err != nil {
-		t.Fatalf("unable to read valid directory entries: %v", err)
-	}
-	validDeLong, _, err := GetValidDirectoryEntriesExtended("/foo")
-	if err != nil {
-		t.Fatalf("unable to read valid directory entries extended: %v", err)
-	}
-	tests := []struct {
-		path    string
-		doMake  bool
-		dir     *Directory
-		entries []*directoryEntry
-		err     error
-	}{
-		{"/", false, &Directory{
-			directoryEntry: directoryEntry{
-				filenameShort:   "",
-				fileExtension:   "",
-				filenameLong:    "",
-				isSubdirectory:  true,
-				clusterLocation: 2,
-			},
-		}, validDe, nil},
-		{"/FOO", false, &Directory{
-			directoryEntry: directoryEntry{
-				filenameShort:   "FOO",
-				fileExtension:   "",
-				filenameLong:    "foo",
-				isSubdirectory:  true,
-				clusterLocation: 3,
-			},
-		}, validDeLong, nil},
-		{"/FOO2", false, nil, nil, fmt.Errorf("path /FOO2 not found")},
-		{"/FOO2", true, &Directory{
-			directoryEntry: directoryEntry{
-				filenameShort:   "FOO2",
-				fileExtension:   "",
-				filenameLong:    "",
-				isSubdirectory:  true,
-				clusterLocation: 127,
-			},
-		}, nil, nil},
-	}
+	for _, fatType := range FatTypes {
+		fs := getValidFat32FSFull()
+		datab, err := os.ReadFile(GetFatDiskImagePath(fatType))
+		if err != nil {
+			t.Fatalf("unable to read data from file %s: %v", GetFatDiskImagePath(fatType), err)
+		}
+		validDe, _, err := GetValidDirectoryEntries(fatType)
+		if err != nil {
+			t.Fatalf("unable to read valid directory entries: %v", err)
+		}
+		validDeLong, _, err := GetValidDirectoryEntriesExtended("/foo")
+		if err != nil {
+			t.Fatalf("unable to read valid directory entries extended: %v", err)
+		}
+		tests := []struct {
+			path    string
+			doMake  bool
+			dir     *Directory
+			entries []*directoryEntry
+			err     error
+		}{
+			{"/", false, &Directory{
+				directoryEntry: directoryEntry{
+					filenameShort:   "",
+					fileExtension:   "",
+					filenameLong:    "",
+					isSubdirectory:  true,
+					clusterLocation: 2,
+				},
+			}, validDe, nil},
+			{"/FOO", false, &Directory{
+				directoryEntry: directoryEntry{
+					filenameShort:   "FOO",
+					fileExtension:   "",
+					filenameLong:    "foo",
+					isSubdirectory:  true,
+					clusterLocation: 3,
+				},
+			}, validDeLong, nil},
+			{"/FOO2", false, nil, nil, fmt.Errorf("path /FOO2 not found")},
+			{"/FOO2", true, &Directory{
+				directoryEntry: directoryEntry{
+					filenameShort:   "FOO2",
+					fileExtension:   "",
+					filenameLong:    "",
+					isSubdirectory:  true,
+					clusterLocation: 127,
+				},
+			}, nil, nil},
+		}
 
-	for _, tt := range tests {
-		fs.backend = file.New(&testhelper.FileImpl{
-			//nolint:revive // unused parameter, keeping name makes it easier to use in the future
-			Writer: func(b []byte, offset int64) (int, error) {
-				return len(b), nil
-			},
-			Reader: func(b []byte, offset int64) (int, error) {
-				copy(b, datab[offset:])
-				return len(b), nil
-			},
-		}, false)
+		for _, tt := range tests {
+			fs.backend = file.New(&testhelper.FileImpl{
+				//nolint:revive // unused parameter, keeping name makes it easier to use in the future
+				Writer: func(b []byte, offset int64) (int, error) {
+					return len(b), nil
+				},
+				Reader: func(b []byte, offset int64) (int, error) {
+					copy(b, datab[offset:])
+					return len(b), nil
+				},
+			}, false)
 
-		dir, entries, err := fs.readDirWithMkdir(tt.path, tt.doMake)
-		switch {
-		case (err == nil && tt.err != nil) || (err != nil && tt.err == nil) || (err != nil && tt.err != nil && !strings.HasPrefix(err.Error(), tt.err.Error())):
-			t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched errors, actual %v expected %v", tt.path, tt.doMake, err, tt.err)
-		case dir != nil && tt.dir == nil || dir == nil && tt.dir != nil:
-			t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched directory unexpected nil, actual then expected", tt.path, tt.doMake)
-			t.Logf("%v", dir)
-			t.Logf("%v", tt.dir)
-		case dir != nil && tt.dir != nil && dir.filenameShort != tt.dir.filenameShort:
-			t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched directory, actual then expected", tt.path, tt.doMake)
-			t.Logf("%v", dir)
-			t.Logf("%v", tt.dir)
-		case len(entries) != len(tt.entries):
-			t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched entries, actual then expected", tt.path, tt.doMake)
-			t.Logf("%v", entries)
-			t.Logf("%v", tt.entries)
+			dir, entries, err := fs.readDirWithMkdir(tt.path, tt.doMake)
+			switch {
+			case (err == nil && tt.err != nil) || (err != nil && tt.err == nil) || (err != nil && tt.err != nil && !strings.HasPrefix(err.Error(), tt.err.Error())):
+				t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched errors, actual %v expected %v", tt.path, tt.doMake, err, tt.err)
+			case dir != nil && tt.dir == nil || dir == nil && tt.dir != nil:
+				t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched directory unexpected nil, actual then expected", tt.path, tt.doMake)
+				t.Logf("%v", dir)
+				t.Logf("%v", tt.dir)
+			case dir != nil && tt.dir != nil && dir.filenameShort != tt.dir.filenameShort:
+				t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched directory, actual then expected", tt.path, tt.doMake)
+				t.Logf("%v", dir)
+				t.Logf("%v", tt.dir)
+			case len(entries) != len(tt.entries):
+				t.Errorf("fs.readDirWithMkdir(%s, %t): mismatched entries, actual then expected", tt.path, tt.doMake)
+				t.Logf("%v", entries)
+				t.Logf("%v", tt.entries)
+			}
 		}
 	}
 }

@@ -296,73 +296,75 @@ func TestFat32Read(t *testing.T) {
 }
 
 func TestFat32ReadDir(t *testing.T) {
-	//nolint:thelper // this is not a helper function
-	runTest := func(t *testing.T, pre, post int64) {
-		// get a temporary working file
-		f, err := tmpFat32(true, pre, post)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if keepTmpFiles == "" {
-			defer os.Remove(f.Name())
-		} else {
-			fmt.Println(f.Name())
-		}
-		// determine entries from the actual data
-		rootEntries, _, err := fat32.GetValidDirectoryEntries()
-		if err != nil {
-			t.Fatalf("error getting valid directory entries: %v", err)
-		}
-		// ignore volume entry when public-facing root entries
-		rootEntries = rootEntries[:len(rootEntries)-1]
-		fooEntries, _, err := fat32.GetValidDirectoryEntriesExtended("/foo")
-		if err != nil {
-			t.Fatalf("error getting valid directory entries for /foo: %v", err)
-		}
-		tests := []struct {
-			path  string
-			count int
-			name  string
-			isDir bool
-			err   error
-		}{
-			{"/", len(rootEntries), "foo", true, nil},
-			{"/foo", len(fooEntries), ".", true, nil},
-			// 0 entries because the directory does not exist
-			{"/a/b/c", 0, "", false, fmt.Errorf("error reading directory /a/b/c")},
-		}
-		fileInfo, err := f.Stat()
-		if err != nil {
-			t.Fatalf("error getting file info for tmpfile %s: %v", f.Name(), err)
-		}
+	for fatType := range fat32.FatTypes {
+		//nolint:thelper // this is not a helper function
+		runTest := func(t *testing.T, pre, post int64) {
+			// get a temporary working file
+			f, err := tmpFat32(true, pre, post)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if keepTmpFiles == "" {
+				defer os.Remove(f.Name())
+			} else {
+				fmt.Println(f.Name())
+			}
+			// determine entries from the actual data
+			rootEntries, _, err := fat32.GetValidDirectoryEntries(fatType)
+			if err != nil {
+				t.Fatalf("error getting valid directory entries: %v", err)
+			}
+			// ignore volume entry when public-facing root entries
+			rootEntries = rootEntries[:len(rootEntries)-1]
+			fooEntries, _, err := fat32.GetValidDirectoryEntriesExtended("/foo")
+			if err != nil {
+				t.Fatalf("error getting valid directory entries for /foo: %v", err)
+			}
+			tests := []struct {
+				path  string
+				count int
+				name  string
+				isDir bool
+				err   error
+			}{
+				{"/", len(rootEntries), "foo", true, nil},
+				{"/foo", len(fooEntries), ".", true, nil},
+				// 0 entries because the directory does not exist
+				{"/a/b/c", 0, "", false, fmt.Errorf("error reading directory /a/b/c")},
+			}
+			fileInfo, err := f.Stat()
+			if err != nil {
+				t.Fatalf("error getting file info for tmpfile %s: %v", f.Name(), err)
+			}
 
-		b := file.New(f, true)
-		fs, err := fat32.Read(b, fileInfo.Size()-pre-post, pre, 512)
-		if err != nil {
-			t.Fatalf("error reading fat32 filesystem from %s: %v", f.Name(), err)
-		}
-		for _, tt := range tests {
-			output, err := fs.ReadDir(tt.path)
-			switch {
-			case (err == nil && tt.err != nil) || (err != nil && tt.err == nil) || (err != nil && tt.err != nil && !strings.HasPrefix(err.Error(), tt.err.Error())):
-				t.Errorf("readDir(%s): mismatched errors, actual: %v , expected: %v", tt.path, err, tt.err)
-			case output == nil && tt.err == nil:
-				t.Errorf("readDir(%s): Unexpected nil output", tt.path)
-			case len(output) != tt.count:
-				t.Errorf("readDir(%s): output gave %d entries instead of expected %d", tt.path, len(output), tt.count)
-			case len(output) > 0 && output[0].IsDir() != tt.isDir:
-				t.Errorf("readDir(%s): output gave directory %t expected %t", tt.path, output[0].IsDir(), tt.isDir)
-			case len(output) > 0 && output[0].Name() != tt.name:
-				t.Errorf("readDir(%s): output gave name %s expected %s", tt.path, output[0].Name(), tt.name)
+			b := file.New(f, true)
+			fs, err := fat32.Read(b, fileInfo.Size()-pre-post, pre, 512)
+			if err != nil {
+				t.Fatalf("error reading fat32 filesystem from %s: %v", f.Name(), err)
+			}
+			for _, tt := range tests {
+				output, err := fs.ReadDir(tt.path)
+				switch {
+				case (err == nil && tt.err != nil) || (err != nil && tt.err == nil) || (err != nil && tt.err != nil && !strings.HasPrefix(err.Error(), tt.err.Error())):
+					t.Errorf("readDir(%s): mismatched errors, actual: %v , expected: %v", tt.path, err, tt.err)
+				case output == nil && tt.err == nil:
+					t.Errorf("readDir(%s): Unexpected nil output", tt.path)
+				case len(output) != tt.count:
+					t.Errorf("readDir(%s): output gave %d entries instead of expected %d", tt.path, len(output), tt.count)
+				case len(output) > 0 && output[0].IsDir() != tt.isDir:
+					t.Errorf("readDir(%s): output gave directory %t expected %t", tt.path, output[0].IsDir(), tt.isDir)
+				case len(output) > 0 && output[0].Name() != tt.name:
+					t.Errorf("readDir(%s): output gave name %s expected %s", tt.path, output[0].Name(), tt.name)
+				}
 			}
 		}
+		t.Run("entire image", func(t *testing.T) {
+			runTest(t, 0, 0)
+		})
+		t.Run("embedded filesystem", func(t *testing.T) {
+			runTest(t, 500, 1000)
+		})
 	}
-	t.Run("entire image", func(t *testing.T) {
-		runTest(t, 0, 0)
-	})
-	t.Run("embedded filesystem", func(t *testing.T) {
-		runTest(t, 500, 1000)
-	})
 }
 
 //nolint:gocyclo // we really do not care about the cyclomatic complexity of a test function. Maybe someday we will improve it.
