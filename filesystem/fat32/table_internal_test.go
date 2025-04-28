@@ -15,10 +15,10 @@ const (
 	eocMin = uint32(0x0ffffff8) // {0xf8, 0xff, 0xff, 0x0f})
 )
 
-func getValidFat32Table() *table {
+func getValidFatTable(fatType int) *table {
 	// make a duplicate, in case someone modifies what we return
 	t := &table{}
-	*t = *fsInfo32.table
+	*t = *GetFsInfo(fatType).table
 	// and because the clusters are copied by reference
 	t.clusters = slices.Clone(t.clusters)
 
@@ -36,7 +36,7 @@ func TestFat32TableFromBytes(t *testing.T) {
 		if result == nil {
 			t.Fatalf("returned FAT32 Table was nil unexpectedly")
 		}
-		valid := getValidFat32Table()
+		valid := getValidFatTable(32)
 		if !result.equal(valid) {
 			diff := cmp.Diff(result, valid, cmp.AllowUnexported(table{}))
 			t.Log(diff)
@@ -47,7 +47,7 @@ func TestFat32TableFromBytes(t *testing.T) {
 
 func TestFat32TableToBytes(t *testing.T) {
 	t.Run("valid FAT32 table", func(t *testing.T) {
-		table := getValidFat32Table()
+		table := getValidFatTable(32)
 		b := table.bytes(32)
 		if b == nil {
 			t.Fatal("b was nil unexpectedly")

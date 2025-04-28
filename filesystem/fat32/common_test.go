@@ -198,7 +198,7 @@ func GetValidDirectoryEntries(fatType int) (entries []*directoryEntry, b []byte,
 // but only one step down from root. If you want more, look for it elsewhere.
 //
 //nolint:revive // yes we are returning an exported type, but that is ok for the tests
-func GetValidDirectoryEntriesExtended(dir string) (entries []*directoryEntry, b []byte, err error) {
+func GetValidDirectoryEntriesExtended(dir string, fatType int) (entries []*directoryEntry, b []byte, err error) {
 	// read correct bytes off of disk
 
 	// find the cluster for the given directory
@@ -207,7 +207,7 @@ func GetValidDirectoryEntriesExtended(dir string) (entries []*directoryEntry, b 
 	dir = strings.TrimSuffix(dir, "/")
 	dir = strings.TrimSuffix(dir, "\\")
 
-	rootdirFileFLS := getTestFile("root_dir_fls.txt", 32)
+	rootdirFileFLS := getTestFile("root_dir_fls.txt", fatType)
 	flsData, err := os.ReadFile(rootdirFileFLS)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error reading fls data from %s: %w", rootdirFileFLS, err)
@@ -224,23 +224,38 @@ func GetValidDirectoryEntriesExtended(dir string) (entries []*directoryEntry, b 
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing cluster number %s: %w", match[1], err)
 		}
+
+		// Sleuthkit seems to always report the root directory as cluster 2 and thus this /foo
+		// directory as cluster 3 regardless of the FAT type. This is not correct for FAT12/16 since
+		// the root directory is not in cluster but rather in a reserved sector.
+		if fatType != 32 {
+			cluster--
+		}
+
 		break
 	}
 
-	input, err := os.ReadFile(GetFatDiskImagePath(32))
+	input, err := os.ReadFile(GetFatDiskImagePath(fatType))
 	if err != nil {
-		return nil, nil, fmt.Errorf("error reading data from fat32 test fixture %s: %v", GetFatDiskImagePath(32), err)
+		return nil, nil, fmt.Errorf("error reading data from fat32 test fixture %s: %v", GetFatDiskImagePath(fatType), err)
 	}
-	fsInfo := GetFsInfo(32)
-	start := fsInfo.dataStartBytes + 1 // start of foo directory in fat32.img
+	fsInfo := GetFsInfo(fatType)
+
+	start := fsInfo.dataStartBytes
+	// in fat32, the root is located in the data section, so we need to adjust it
+	// in fat12/16, the root directory is located in the reserved sectors
+	if fatType == 32 {
+		start++
+	}
 	// we only have 9 actual 32-byte entries, of which 4 are real and 3 are VFAT extensionBytes
 	//   the rest are all 0s (as they should be), so we will include to exercise it
 	b = make([]byte, fsInfo.bytesPerCluster)
 	copy(b, input[start:start+fsInfo.bytesPerCluster])
 
-	foodirFile := getTestFile("foo_dir.txt", 32)
-	foodirEntryPattern := getTestPattern("foo_dir_istat_%d.txt", 32)
+	foodirFile := getTestFile("foo_dir.txt", fatType)
+	foodirEntryPattern := getTestPattern("foo_dir_istat_%d.txt", fatType)
 	entries, err = testGetValidDirectoryEntriesFromFile(foodirFile, foodirEntryPattern, fsInfo)
+
 	// handle . and ..
 	if len(entries) > 0 && entries[0].filenameShort == "." {
 		entries[0].clusterLocation = uint32(cluster)

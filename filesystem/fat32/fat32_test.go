@@ -316,7 +316,7 @@ func TestFat32ReadDir(t *testing.T) {
 			}
 			// ignore volume entry when public-facing root entries
 			rootEntries = rootEntries[:len(rootEntries)-1]
-			fooEntries, _, err := fat32.GetValidDirectoryEntriesExtended("/foo")
+			fooEntries, _, err := fat32.GetValidDirectoryEntriesExtended("/foo", fatType)
 			if err != nil {
 				t.Fatalf("error getting valid directory entries for /foo: %v", err)
 			}

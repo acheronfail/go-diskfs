@@ -918,12 +918,12 @@ func (fs *FileSystem) getClusterList(firstCluster uint32) ([]uint32, error) {
 	return clusterList, nil
 }
 
-// read directory entries for a given cluster
-func (fs *FileSystem) readDirectory(dir *Directory) ([]*directoryEntry, error) {
-	clusterList, err := fs.getClusterList(dir.clusterLocation)
+func (fs *FileSystem) getDirectoryBytes(clusterLocation uint32) ([]byte, error) {
+	clusterList, err := fs.getClusterList(clusterLocation)
 	if err != nil {
 		return nil, fmt.Errorf("could not read cluster list: %w", err)
 	}
+
 	// read the data from all of the cluster entries in the list
 	byteCount := len(clusterList) * fs.bytesPerCluster
 	b := make([]byte, 0, byteCount)
@@ -936,6 +936,44 @@ func (fs *FileSystem) readDirectory(dir *Directory) ([]*directoryEntry, error) {
 		_, _ = fs.backend.ReadAt(tmpb, clusterStart)
 		b = append(b, tmpb...)
 	}
+
+	fmt.Println(fs.fatType, clusterList, byteCount, fs.bytesPerCluster)
+
+	return b, nil
+}
+
+func (fs *FileSystem) getRootDirectoryBytes() ([]byte, error) {
+	sectorsPerFat := fs.bootSector.biosParameterBlock.sectorsPerFat
+	dos20BPB := fs.bootSector.biosParameterBlock.dos331BPB.dos20BPB
+
+	fatRegionSize := sectorsPerFat * uint32(dos20BPB.fatCount)
+	rootDirStartSector := uint32(dos20BPB.reservedSectors) + fatRegionSize
+	start := rootDirStartSector * uint32(dos20BPB.bytesPerSector)
+
+	rootDirSize := dos20BPB.rootDirectoryEntries * 32
+	b := make([]byte, rootDirSize)
+	_, err := fs.backend.ReadAt(b, int64(start))
+	if err != nil {
+		return nil, fmt.Errorf("could not read root directory bytes: %w", err)
+	}
+
+	return b, nil
+}
+
+// read directory entries for a given cluster
+func (fs *FileSystem) readDirectory(dir *Directory, isRoot bool) ([]*directoryEntry, error) {
+	var b []byte
+	var err error
+	if fs.fatType == 32 || !isRoot {
+		b, err = fs.getDirectoryBytes(dir.clusterLocation)
+		fmt.Println(len(b))
+	} else {
+		b, err = fs.getRootDirectoryBytes()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not read directory bytes: %w", err)
+	}
+
 	// get the directory
 	if err := dir.entriesFromBytes(b, fs.fatType); err != nil {
 		return nil, err
@@ -1032,7 +1070,7 @@ func (fs *FileSystem) readDirWithMkdir(p string, doMake bool) (*Directory, []*di
 			filesystem:      fs,
 		},
 	}
-	entries, err = fs.readDirectory(currentDir)
+	entries, err = fs.readDirectory(currentDir, len(paths) == 1)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read directory %s: %w", "/", err)
 	}
@@ -1118,7 +1156,7 @@ func (fs *FileSystem) readDirWithMkdir(p string, doMake bool) (*Directory, []*di
 			}
 		}
 		// get all of the entries in this directory
-		entries, err = fs.readDirectory(currentDir)
+		entries, err = fs.readDirectory(currentDir, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to read directory %s: %w", "/"+strings.Join(paths[0:i+1], "/"), err)
 		}
