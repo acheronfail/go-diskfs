@@ -367,10 +367,11 @@ func Read(b backend.Storage, size, start, blocksize int64) (*FileSystem, error) 
 		sectorsPerFat = uint32(bs.biosParameterBlock.dos331BPB.dos20BPB.sectorsPerFat)
 	}
 
-	fatSize := sectorsPerFat * uint32(SectorSize512)
+	bytesPerSector := int(bs.biosParameterBlock.dos331BPB.dos20BPB.bytesPerSector)
+	fatSize := sectorsPerFat * uint32(bytesPerSector)
 	reservedSectors := bs.biosParameterBlock.dos331BPB.dos20BPB.reservedSectors
 	sectorsPerCluster := bs.biosParameterBlock.dos331BPB.dos20BPB.sectorsPerCluster
-	fatPrimaryStart := uint64(reservedSectors) * uint64(SectorSize512)
+	fatPrimaryStart := uint64(reservedSectors) * uint64(bytesPerSector)
 	fatSecondaryStart := fatPrimaryStart + uint64(fatSize)
 
 	fsisBytes := make([]byte, 512)
@@ -407,7 +408,7 @@ func Read(b backend.Storage, size, start, blocksize int64) (*FileSystem, error) 
 		fsis:            fsis,
 		table:           *fat,
 		dataStart:       dataStart,
-		bytesPerCluster: int(sectorsPerCluster) * int(SectorSize512),
+		bytesPerCluster: int(sectorsPerCluster) * bytesPerSector,
 		start:           start,
 		size:            size,
 		backend:         b,
@@ -937,8 +938,6 @@ func (fs *FileSystem) getDirectoryBytes(clusterLocation uint32) ([]byte, error) 
 		b = append(b, tmpb...)
 	}
 
-	fmt.Println(fs.fatType, clusterList, byteCount, fs.bytesPerCluster)
-
 	return b, nil
 }
 
@@ -966,7 +965,6 @@ func (fs *FileSystem) readDirectory(dir *Directory, isRoot bool) ([]*directoryEn
 	var err error
 	if fs.fatType == 32 || !isRoot {
 		b, err = fs.getDirectoryBytes(dir.clusterLocation)
-		fmt.Println(len(b))
 	} else {
 		b, err = fs.getRootDirectoryBytes()
 	}

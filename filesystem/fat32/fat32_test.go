@@ -296,11 +296,11 @@ func TestFat32Read(t *testing.T) {
 }
 
 func TestFat32ReadDir(t *testing.T) {
-	for fatType := range fat32.FatTypes {
+	for _, fatType := range fat32.FatTypes {
 		//nolint:thelper // this is not a helper function
 		runTest := func(t *testing.T, pre, post int64) {
 			// get a temporary working file
-			f, err := tmpFat32(true, pre, post)
+			f, err := tmpFat32(true, pre, post) // FIXME: create temp 12/16
 			if err != nil {
 				t.Fatal(err)
 			}

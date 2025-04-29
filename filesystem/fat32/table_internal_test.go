@@ -10,10 +10,16 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-const (
-	eoc    = uint32(0x0fffffff) // {0xff, 0xff, 0xff, 0x0f})
-	eocMin = uint32(0x0ffffff8) // {0xf8, 0xff, 0xff, 0x0f})
-)
+func getEoc(fatType int) (uint32, uint32) {
+	switch fatType {
+	case 12:
+		return 0xfff, 0xff8
+	case 16:
+		return 0xffff, 0xfff8
+	default:
+		return uint32(0x0fffffff), uint32(0x0ffffff8)
+	}
+}
 
 func getValidFatTable(fatType int) *table {
 	// make a duplicate, in case someone modifies what we return

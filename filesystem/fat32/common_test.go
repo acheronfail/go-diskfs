@@ -405,6 +405,7 @@ func testReadFilesystemData(fatType int) (info *testFSInfo, err error) {
 	info = &testFSInfo{
 		fatType: fatType,
 	}
+	eoc, eocMin := getEoc(fatType)
 	fsckFile := getTestFile("fsck.txt", fatType)
 	fsckInfo, err := os.ReadFile(fsckFile)
 	if err != nil {
@@ -564,10 +565,16 @@ func testReadFilesystemData(fatType int) (info *testFSInfo, err error) {
 			sectorsPerFat := info.sectorsPerFAT
 			sizeInBytes := sectorsPerFat * info.bytesPerSector
 			numClusters := sizeInBytes / 4
+
+			rootDirCluster := uint32(0)
+			if fatType == 32 {
+				rootDirCluster = 2
+			}
+
 			info.table = &table{
-				fatID:          268435448, // 0x0ffffff8
-				eocMarker:      eoc,       // 0x0fffffff
-				rootDirCluster: 2,         // root is at cluster 2
+				fatID:          268435448,
+				eocMarker:      eoc,
+				rootDirCluster: rootDirCluster,
 				size:           sizeInBytes,
 				maxCluster:     numClusters,
 				clusters:       make([]uint32, numClusters+1),
@@ -583,6 +590,12 @@ func testReadFilesystemData(fatType int) (info *testFSInfo, err error) {
 				println("Error parsing cluster end", clusterLineMatch[2], err)
 				os.Exit(1)
 			}
+
+			sectorsPerCluster := (int(info.bytesPerCluster) / int(info.bytesPerSector))
+			sectorToCluster := func(sector int) uint32 {
+				return (uint32(sector)-info.dataStartSector)/uint32(sectorsPerCluster) + 2
+			}
+
 			var target uint32
 			if clusterLineMatch[4] == "EOF" {
 				target = eoc
@@ -592,21 +605,20 @@ func testReadFilesystemData(fatType int) (info *testFSInfo, err error) {
 					println("Error parsing cluster target", clusterLineMatch[4], err)
 					os.Exit(1)
 				}
-				target = uint32(targetInt) - info.dataStartSector + 2
+				target = sectorToCluster(targetInt)
 			}
-			// 2 is a special case that fsstat does not handle well
-			// the start and end might be the same, or it might be a continual chain,
-			// with only the last pointing at the target
+
 			for i := start; i < end; i++ {
-				startCluster := uint32(i) - info.dataStartSector + 2
+				startCluster := sectorToCluster(i)
 				info.table.clusters[startCluster] = startCluster + 1
 			}
-			endCluster := uint32(end) - info.dataStartSector + 2
-			if endCluster == 2 {
+			endCluster := sectorToCluster(end)
+			if fatType == 32 && endCluster == 2 {
 				target = eocMin
 			}
 			info.table.clusters[endCluster] = target
 		}
 	}
+
 	return info, err
 }

@@ -119,7 +119,7 @@ func (de *directoryEntry) toBytes(fatType int) ([]byte, error) {
 // this is, essentially, the equivalent of `ls -l` or if you prefer `dir`
 func parseDirEntries(b []byte, fatType int) ([]*directoryEntry, error) {
 	dirEntries := make([]*directoryEntry, 0, 20)
-	// parse the data into Fat32DirectoryEntry
+	// parse the data into FatDirectoryEntry
 	lfn := ""
 	// this should be used to count the LFN entries and that they make sense
 	//     lfnCount := 0
@@ -188,6 +188,7 @@ byteLoop:
 		lfn = ""
 		dirEntries = append(dirEntries, &entry)
 	}
+
 	return dirEntries, nil
 }
 
